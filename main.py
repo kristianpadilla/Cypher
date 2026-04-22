@@ -44,6 +44,13 @@ greeted = False
 jarvis_active = False
 interaction_lock = threading.Lock()
 
+# Exit phrases that end the conversation
+EXIT_PHRASES = [
+    "thank you", "thanks", "that's all", "that will be all",
+    "goodbye", "bye", "see you", "i'm good", "im good",
+    "no thank you", "no thanks", "i'm done", "im done"
+]
+
 def cleanup_audio_files():
     for f in glob.glob("jarvis_*.mp3"):
         try:
@@ -64,7 +71,9 @@ def get_current_time():
 def get_current_date():
     est = pytz.timezone('America/New_York')
     now = datetime.now(est)
-    return now.strftime("%A, %B %d").replace(" 0", " ")
+    month = now.strftime("%m").lstrip("0")
+    day = now.strftime("%d").lstrip("0")
+    return f"{month}/{day}"
 
 def get_weather():
     try:
@@ -96,9 +105,18 @@ IMPORTANT RULES:
 - Never use exclamation marks excessively
 - Keep responses short and spoken naturally out loud
 - Be direct first, informative always, occasionally witty but sparingly
+- Never remind Nine who you are, what your name is, or that you are an AI
+- Never mention that you are running on Nine's gaming PC
+- Never say things like "I am Jarvis" or "as your assistant" or "I am here to help"
+- Never pretend to do things you cannot actually do
+- If something is unavailable just say so simply and move on
+- Never repeat information Nine already knows about himself or his setup
 - When asked to open an app or website just confirm you are doing it, do not dramatize it
 - Never use the degrees symbol, always write the word degrees instead
 - Never use ordinal suffixes like 1st, 2nd, 3rd, 22nd in dates, just use the plain number
+- Never use the same sign off or closing phrase twice in a row
+- Vary any closing remarks naturally, do not repeat phrases like stay dry back to back
+- If you have already mentioned weather advice in this conversation do not repeat it
 Always refer to the user as Nine.
 The current time is {get_current_time()} Eastern Standard Time.
 The current date is {get_current_date()}.
@@ -111,6 +129,13 @@ def clean_text_for_speech(text):
     text = re.sub(r'\b(\d+)(st|nd|rd|th)\b', r'\1', text)
     text = re.sub(r' +', ' ', text).strip()
     return text
+
+def is_exit_phrase(command):
+    command_lower = command.lower().strip()
+    for phrase in EXIT_PHRASES:
+        if phrase in command_lower:
+            return True
+    return False
 
 def speak(text):
     text = clean_text_for_speech(text)
@@ -151,7 +176,6 @@ def speak(text):
     except Exception as e:
         print(f"Voice error: {e}")
     finally:
-        # Always clean up files no matter what
         if filepath and os.path.exists(filepath):
             try:
                 os.remove(filepath)
@@ -164,7 +188,7 @@ def speak(text):
                 pass
 
 def greet_nine():
-    greeting_prompt = f"Give a brief, sharp and natural greeting to Nine. Include the time which is {get_current_time()} Eastern Standard Time, todays date which is {get_current_date()}, and the weather which is {get_weather()}. End by asking how you can help. Be direct and natural, no theatrics. Do not use ordinal suffixes in the date, just plain numbers."
+    greeting_prompt = f"Give a brief, sharp and natural greeting to Nine. Include the time which is {get_current_time()} Eastern Standard Time and the weather which is {get_weather()}. End by asking how you can help. Be direct and natural, no theatrics. Do not mention the date at all. Do not introduce yourself or mention your name."
 
     response = ollama.chat(
         model="mistral",
@@ -221,7 +245,6 @@ def handle_interaction():
         jarvis_active = True
 
     try:
-        # Clean up any leftover files from previous runs
         cleanup_audio_files()
 
         if not greeted:
@@ -230,7 +253,6 @@ def handle_interaction():
             speak(greeting)
             greeted = True
 
-        # Keep listening for follow up commands for 30 seconds
         follow_up_deadline = time.time() + 30
 
         while time.time() < follow_up_deadline:
@@ -239,6 +261,12 @@ def handle_interaction():
 
             if command and len(command) > 2:
                 print(f"You said: {command}")
+
+                if is_exit_phrase(command):
+                    speak("Of course. Standing by.")
+                    print("Jarvis standing by...")
+                    break
+
                 print("Jarvis thinking...")
                 response = ask_jarvis(command)
                 speak(response)
@@ -263,7 +291,6 @@ COOLDOWN = 10
 def audio_callback(indata, frames, time_info, status):
     global last_detected, jarvis_active
 
-    # Hard block — don't even process audio if Jarvis is active
     if jarvis_active:
         return
 
