@@ -18,6 +18,8 @@ import subprocess
 import re
 import threading
 import glob
+import webbrowser
+import pyautogui
 
 # Load environment variables
 load_dotenv()
@@ -44,6 +46,56 @@ greeted = False
 jarvis_active = False
 interaction_lock = threading.Lock()
 
+# Only block obvious hallucinations not real sentences
+HALLUCINATION_PHRASES = [
+    "thank you for watching",
+    "thanks for watching",
+    "please subscribe",
+    "like and subscribe",
+    "www.",
+    "http",
+    "subtitles",
+    "transcribed",
+]
+
+# App paths
+APPS = {
+    "steam": "C:\\Program Files (x86)\\Steam\\steam.exe",
+    "discord": "C:\\Users\\krist\\AppData\\Local\\Discord\\app-1.0.9233\\Discord.exe",
+    "opera": "C:\\Users\\krist\\AppData\\Local\\Programs\\Opera GX\\opera.exe",
+    "opera gx": "C:\\Users\\krist\\AppData\\Local\\Programs\\Opera GX\\opera.exe",
+}
+
+# Discord voice channel coordinates
+DISCORD_VOICE_CHANNELS = {
+    "tfm": {
+        "name": "Trained Flak Monkeys",
+        "folder": (35, 364),
+        "server": (38, 526),
+        "channel": (177, 617),
+        "join_button": (1223, 786)
+    }
+}
+
+# Discord text channel links
+DISCORD_CHANNELS = {
+    "tfm": {"name": "Trained Flak Monkeys", "url": "discord://channels/404778585375899650/738605488572203040"},
+    "trained flak monkeys": {"name": "Trained Flak Monkeys", "url": "discord://channels/404778585375899650/738605488572203040"},
+    "flak monkeys": {"name": "Trained Flak Monkeys", "url": "discord://channels/404778585375899650/738605488572203040"},
+    "nine": {"name": "Nine's Server", "url": "discord://channels/1266976590412382258/1480316294132797510"},
+    "nines server": {"name": "Nine's Server", "url": "discord://channels/1266976590412382258/1480316294132797510"},
+    "nine's server": {"name": "Nine's Server", "url": "discord://channels/1266976590412382258/1480316294132797510"},
+    "fppt": {"name": "FPPT Server", "url": "discord://channels/748331417821511731/1058581002617896971"},
+    "fppt server": {"name": "FPPT Server", "url": "discord://channels/748331417821511731/1058581002617896971"},
+}
+
+# All the ways Whisper might mishear Discord
+DISCORD_ALIASES = [
+    "discord", "this cord", "disk cord", "disc cord",
+    "discor", "discard", "this core", "disk core",
+    "the cord", "dis cord", "discourt"
+]
+
 # Exit phrases that end the conversation
 EXIT_PHRASES = [
     "thank you", "thanks", "that's all", "that will be all",
@@ -62,6 +114,17 @@ def cleanup_audio_files():
             os.remove(f)
         except:
             pass
+
+def is_hallucination(text):
+    if not text or len(text.strip()) < 3:
+        return True
+    text_lower = text.lower().strip()
+    for phrase in HALLUCINATION_PHRASES:
+        if phrase in text_lower:
+            return True
+    if re.match(r'^[\d\s\.\%\,]+$', text_lower):
+        return True
+    return False
 
 def get_current_time():
     est = pytz.timezone('America/New_York')
@@ -136,6 +199,123 @@ def is_exit_phrase(command):
         if phrase in command_lower:
             return True
     return False
+
+def is_discord_command(command_lower):
+    for alias in DISCORD_ALIASES:
+        if alias in command_lower:
+            return True
+    return False
+
+def open_app(app_name):
+    app_name_lower = app_name.lower()
+    for key in APPS:
+        if key in app_name_lower:
+            subprocess.Popen([APPS[key]])
+            return True
+    return False
+
+def join_discord_voice(channel_key):
+    if channel_key not in DISCORD_VOICE_CHANNELS:
+        return False
+
+    coords = DISCORD_VOICE_CHANNELS[channel_key]
+
+    # Launch Discord first
+    subprocess.Popen([APPS["discord"]])
+    time.sleep(6)
+
+    try:
+        # Click the folder to open it
+        pyautogui.click(coords["folder"])
+        time.sleep(1)
+
+        # Click the server icon
+        pyautogui.click(coords["server"])
+        time.sleep(1.5)
+
+        # Click the voice channel
+        pyautogui.click(coords["channel"])
+        time.sleep(1.5)
+
+        # Click the join voice button
+        pyautogui.click(coords["join_button"])
+        return True
+    except Exception as e:
+        print(f"Auto click error: {e}")
+        return False
+
+def open_discord_channel(channel_key):
+    channel_info = DISCORD_CHANNELS[channel_key]
+    channel_url = channel_info["url"]
+    subprocess.Popen([APPS["discord"]])
+    time.sleep(4)
+    try:
+        os.startfile(channel_url)
+        return True
+    except:
+        return False
+
+def gaming_mode():
+    subprocess.Popen([APPS["steam"]])
+    time.sleep(2)
+    subprocess.Popen([APPS["discord"]])
+
+def handle_command(command):
+    command_lower = command.lower()
+
+    # Gaming mode
+    if "gaming mode" in command_lower:
+        gaming_mode()
+        return "Gaming mode activated. Launching your setup, Nine."
+
+    # Discord voice channel join commands
+    if is_discord_command(command_lower) and ("join" in command_lower or "voice" in command_lower):
+        for key in DISCORD_VOICE_CHANNELS:
+            if key in command_lower:
+                channel_name = DISCORD_VOICE_CHANNELS[key]["name"]
+                join_discord_voice(key)
+                return f"Joining {channel_name} voice channel now."
+        return "Which voice channel would you like to join, Nine?"
+
+    # Discord text channel commands
+    if is_discord_command(command_lower) and ("open" in command_lower or "launch" in command_lower):
+        for key in DISCORD_CHANNELS:
+            if key in command_lower:
+                channel_name = DISCORD_CHANNELS[key]["name"]
+                open_discord_channel(key)
+                return f"Opening Discord and navigating to {channel_name}."
+        open_app("discord")
+        return "Opening Discord."
+
+    # Just open Discord
+    if is_discord_command(command_lower):
+        open_app("discord")
+        return "Opening Discord."
+
+    # Open app commands
+    for app in APPS:
+        if app in command_lower and ("open" in command_lower or "launch" in command_lower or "start" in command_lower):
+            open_app(app)
+            return f"Opening {app}."
+
+    # Open website commands
+    if "open" in command_lower or "go to" in command_lower or "pull up" in command_lower:
+        sites = {
+            "youtube": "https://www.youtube.com",
+            "google": "https://www.google.com",
+            "twitter": "https://www.twitter.com",
+            "reddit": "https://www.reddit.com",
+            "netflix": "https://www.netflix.com",
+            "twitch": "https://www.twitch.tv",
+            "spotify": "https://open.spotify.com",
+            "github": "https://www.github.com",
+        }
+        for site in sites:
+            if site in command_lower:
+                webbrowser.open(sites[site])
+                return f"Opening {site}."
+
+    return None
 
 def speak(text):
     text = clean_text_for_speech(text)
@@ -260,6 +440,10 @@ def handle_interaction():
             command = transcribe_command(recording)
 
             if command and len(command) > 2:
+                if is_hallucination(command):
+                    print(f"Ignored noise: {command}")
+                    continue
+
                 print(f"You said: {command}")
 
                 if is_exit_phrase(command):
@@ -267,9 +451,14 @@ def handle_interaction():
                     print("Jarvis standing by...")
                     break
 
-                print("Jarvis thinking...")
-                response = ask_jarvis(command)
-                speak(response)
+                action_response = handle_command(command)
+                if action_response:
+                    speak(action_response)
+                else:
+                    print("Jarvis thinking...")
+                    response = ask_jarvis(command)
+                    speak(response)
+
                 follow_up_deadline = time.time() + 30
 
         print("Jarvis standing by...")
