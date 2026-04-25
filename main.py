@@ -22,6 +22,7 @@ import webbrowser
 import pyautogui
 import keyboard
 import sys
+from cypher_ui import start_ui, set_ui_state
 
 # Load environment variables
 load_dotenv()
@@ -42,6 +43,9 @@ openwakeword.utils.download_models()
 owwModel = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
 
 print("Cypher systems online...")
+
+# Start the UI server
+start_ui()
 
 # Conversation history
 conversation_history = []
@@ -461,6 +465,7 @@ def speak(text):
     global cypher_stopped
     text = clean_text_for_speech(text)
     print(f"Cypher: {text}")
+    set_ui_state(status="speaking", cypher_text=text)
     filepath = None
     wav_path = None
     try:
@@ -494,6 +499,7 @@ def speak(text):
 
         if cypher_stopped:
             print("Cypher cut off before playback.")
+            set_ui_state(status="standby")
             return
 
         sd.play(data, samplerate)
@@ -502,13 +508,16 @@ def speak(text):
             if cypher_stopped:
                 sd.stop()
                 print("Cypher cut off mid-sentence.")
+                set_ui_state(status="standby")
                 return
             time.sleep(0.05)
 
         sd.wait()
+        set_ui_state(status="standby")
 
     except Exception as e:
         print(f"Voice error: {e}")
+        set_ui_state(status="standby")
     finally:
         if filepath and os.path.exists(filepath):
             try:
@@ -599,6 +608,7 @@ def transcribe_command(recording):
 
 def record_command():
     print("Listening for your command...")
+    set_ui_state(status="listening")
     recording = sd.rec(
         int(RECORD_SECONDS * SAMPLE_RATE),
         samplerate=SAMPLE_RATE,
@@ -623,6 +633,7 @@ def handle_interaction():
 
         if not greeted:
             print("Cypher thinking...")
+            set_ui_state(status="thinking")
             greeting = greet_nine()
             speak(greeting)
             greeted = True
@@ -633,10 +644,12 @@ def handle_interaction():
 
             if cypher_stopped:
                 print("Cypher session cut off.")
+                set_ui_state(status="standby")
                 break
 
             if cypher_muted:
                 print("Cypher muted — ending session.")
+                set_ui_state(status="muted")
                 break
 
             recording = record_command()
@@ -648,14 +661,17 @@ def handle_interaction():
                     continue
 
                 print(f"You said: {command}")
+                set_ui_state(user_text=command)
 
                 if cypher_muted:
                     print("Muted mid-command. Discarding.")
+                    set_ui_state(status="muted")
                     break
 
                 if is_exit_phrase(command):
                     speak("Of course. Standing by.")
                     print("Cypher standing by...")
+                    set_ui_state(status="standby")
                     break
 
                 action_response = handle_command(command)
@@ -663,12 +679,14 @@ def handle_interaction():
                     speak(action_response)
                 else:
                     print("Cypher thinking...")
+                    set_ui_state(status="thinking")
                     response = ask_cypher(command)
                     speak(response)
 
                 follow_up_deadline = time.time() + 30
 
         print("Cypher standing by...")
+        set_ui_state(status="standby")
 
     finally:
         cypher_active = False
@@ -700,9 +718,11 @@ def on_mute_hotkey():
     if cypher_muted:
         cypher_stopped = True
         sd.stop()
+        set_ui_state(status="muted")
         print("\n🔇 Cypher muted — session ended.")
     else:
         cypher_stopped = False
+        set_ui_state(status="standby")
         print("\n🔊 Cypher unmuted.")
 
 def on_restart_hotkey():
@@ -717,7 +737,7 @@ def on_kill_hotkey():
     os.kill(os.getpid(), 9)
 
 keyboard.add_hotkey("ctrl+shift+space", on_activate_hotkey)
-keyboard.add_hotkey("ctrl+shift+x", on_stop_hotkey)
+keyboard.add_hotkey("ctrl+shift+F4", on_stop_hotkey)
 keyboard.add_hotkey("ctrl+shift+m", on_mute_hotkey)
 keyboard.add_hotkey("ctrl+shift+r", on_restart_hotkey)
 keyboard.add_hotkey("ctrl+shift+q", on_kill_hotkey)
